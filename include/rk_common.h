@@ -42,7 +42,7 @@ typedef struct {
 } object_detect_result_list;
 
 
-//void dump_tensor_attr(rknn_tensor_attr* attr);
+void dump_tensor_attr(rknn_tensor_attr* attr);
 unsigned char* load_model(const char* filename, int& fileSize);
 
 #endif //_RKNN_MODEL_ZOO_COMMON_H_

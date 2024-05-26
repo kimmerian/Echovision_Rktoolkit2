@@ -43,7 +43,7 @@ int main() {
 
     vector<rknn_lite *> rkpool;
     dpool::ThreadPool pool(n);
-    queue<std::future<int>> futs;
+    queue<std::future<vector<bbox_t>>> futs;
 
     vector<string> pipes =  FILEMAN::readIniFile();
 
@@ -55,7 +55,7 @@ int main() {
 
     string stream1 = pipes[0];//"rtspsrc location=rtsp://root:Belixys123*@192.168.88.179/axis-media/media.amp?resolution=640x480&fps=10 ! watchdog timeout=1000  ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1";
    // string stream2 = pipes[1];//"rtspsrc location=rtsp://admin:Belixys123*@192.168.88.178:554//cam/realmonitor?channel=1&subtype=2 ! watchdog timeout=1000  !  decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1";
-    string model =pipes[2];// "/home/rock/YoloModels/ppyoloe_s.rknn";
+    string model ="/home/rock/YoloModels/yolov8m.rknn";
 
     usleep(100000);
    // init_pipe2(stream2);
@@ -69,13 +69,12 @@ int main() {
                     " d. ! queue ! mppvideodec format=BGR ! appsink sync=false drop=1";
   scaler = stof(pipes[3]);
 
-    std::string demo ="filesrc location=/home/rock/Videos/b2.mp4 ! decodebin ! videoconvert  ! tee name=t"
-                     " t. ! queue ! mppvideodec format=NV12 ! mpph264enc ! rtspclientsink location=rtsp://localhost:8554/c1"
-                      " t. ! queue !  mppvideodec format=0 ! appsink sync=false drop=1 ";
+    std::string demo ="filesrc location=/mnt/ssd/videos/nvr/2024/05/21/c1/2024.05.21T16:39:49.167753.mp4 ! qtdemux ! h264parse !  mppvideodec format=BGR framerate=25/1  ! appsink sync=false ";
+    std::string demo1 ="filesrc location=/home/rock/Videos/boels.mp4  ! qtdemux  ! h264parse  ! appsink ";
 
 
 
-    init_pipe1(bede);
+    init_pipe1(hede);
 
     char *model_name = (char *) model.c_str();
 
@@ -87,7 +86,7 @@ int main() {
         futs.push(pool.submit(&rknn_lite::interf, &(*ptr)));
     }
 
-    track_kalman_t c1_kalman(64, 10,50, cv::Size(1920, 1080));
+    track_kalman_t c1_kalman(64, 2,20, cv::Size(1920, 1080));
    // track_kalman_t c2_kalman(64, 10,100, cv::Size(1920, 1080));
 
     SSocket::init();
@@ -111,33 +110,45 @@ int main() {
             if(rtsp1.read(rkpool[0]->ori_img))
             {
 
-                if (futs.front().get() != 0) {
+               /* if (futs.front().get() == NULL) {
                     break;
-                }
+                }*/
 
                 futs.pop();
                 rkpool[0]->source = "1";
-                futs.push(pool.submit(&rknn_lite::interf, &(*rkpool[0])));
+                 futs.push(pool.submit(&rknn_lite::interf, &(*rkpool[0])));
+                vector<bbox_t> proccResult =   futs.front().get();
 
-                vector<bbox_t> c1_kalmanresult = c1_kalman.correct(&rkpool[0]->p);
+                vector<bbox_t> c1_kalmanresult = c1_kalman.correct(&proccResult);
                 vector<bbox_t> tempc1result;
 
                 for (auto item: c1_kalmanresult) {
                     item.frames_counter = frames % fps;
                     tempc1result.push_back(item);
+
+                    cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x, item.y),
+                                  cv::Point(item.x + item.w,
+                                            item.y + item.h),
+                                  cv::Scalar(0, 0, 250), 1);
+                    cv::putText(rkpool[0]->ori_img, to_string(item.obj_id), cv::Point(item.x, item.y + 10), cv::FONT_HERSHEY_SIMPLEX, 1,
+                                cv::Scalar(150, 200, 0));
+                    cv::putText(rkpool[0]->ori_img, to_string(item.track_id), cv::Point(item.x+50, item.y + 10), cv::FONT_HERSHEY_SIMPLEX, 1,
+                                cv::Scalar(150, 250, 0));
                 }
-                vector<bbox_t> motVector = m_Detect.motdet(rkpool[0]->ori_img);
+
+                vector<bbox_t> motVector = m_Detect.detectRectanglesInsideObjects(rkpool[0]->ori_img,c1_kalmanresult);
+
 
                 movementStatus="static";
                 if(motVector.size()>0) {
+                    movementStatus="movement";
                     for (auto item: motVector) {
                         tempc1result.push_back(item);
-                       /* cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x, item.y),
+                        cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x+50, item.y+40),
                                       cv::Point(item.x + item.w,
                                                 item.y + item.h),
-                                      cv::Scalar(0, 0, 250), 1);*/
+                                      cv::Scalar(0, 250, 250), 3);
                     }
-                    movementStatus="movement";
                 }
 
                 c1_boxQ.push(tempc1result);
@@ -164,6 +175,17 @@ int main() {
 
 
                 cv::imshow("fr",rkpool[0]->ori_img);
+            }
+            else
+            {
+                std::cout << "Pipe 1 cant read: " << std::endl;
+                pipeCounter1++;
+
+                if(pipeCounter1 >= 10)
+                {
+                    init_pipe1(stream1);
+                }
+                sleep(1);
             }
         }
         catch( cv::Exception& e )
@@ -329,7 +351,7 @@ std::string conv_toJson(vector<bbox_t> val,int camId)
         msg += "]},{\"Id\":\"" + bsonId + "\"" + "," + "\"Time\":\"" + t + "\",\"CameraId\":\"" + "motionDetectFrame" +
                "\"," + "\"MovementStatus\":\"" + movementStatus + "\"," + "\"Objects\":[";
 
-        for (int i = z; i < val.size(); i++) {
+        for (int i = z-1; i < val.size(); i++) {
             val[i].color = "a";
             std::string empty = "{\"CId\":""\"" + Classes[val[i].obj_id] + "\"" +
                                 ",\"TId\":" + to_string(val[i].track_id) + ",\"Prob\":" +

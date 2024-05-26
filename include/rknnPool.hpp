@@ -17,6 +17,7 @@
 #include "ThreadPool.hpp"
 #include "list"
 #include "globaltypes.h"
+#include "rk_common.h"
 
 #include <math.h>
 
@@ -47,19 +48,19 @@ public:
   //  sortproc sorting;
     std::vector<bbox_t> p;
     Mat ori_img;
-    int interf();
+    vector<bbox_t> interf();
     rknn_lite(char *dst, int n);
     ~rknn_lite();
     std::string source;
 };
 
-rknn_lite::rknn_lite(char *model_name, int n)
+rknn_lite::rknn_lite(char *model_path, int n)
 {
     /* Create the neural network */
     printf("Loading mode...\n");
     int model_data_size = 0;
     // 读取模型文件数据
-    model_data = load_model(model_name, &model_data_size);
+    model_data = load_model(model_path, &model_data_size);
     // 通过模型文件初始化rknn类
     ret = rknn_init(&ctx, model_data, model_data_size, 0, NULL);
     if (ret < 0)
@@ -81,81 +82,86 @@ rknn_lite::rknn_lite(char *model_name, int n)
         printf("rknn_init core error ret=%d\n", ret);
         exit(-1);
     }
-
-    // 初始化rknn类的版本
+    rknn_sdk_version version;
     ret = rknn_query(ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
-    if (ret < 0)
-    {
+    if (ret < 0) {
         printf("rknn_init error ret=%d\n", ret);
-        exit(-1);
-    }
 
-    // 获取模型的输入参数
+    }
+    printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
+
+    // Get Model Input Output Number
+    rknn_input_output_num io_num;
     ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    if (ret < 0)
+    if (ret != RKNN_SUCC)
     {
-        printf("rknn_init error ret=%d\n", ret);
-        exit(-1);
-    }
+        printf("rknn_query fail! ret=%d\n", ret);
 
-    // 设置输入数组
-    input_attrs = new rknn_tensor_attr[io_num.n_input];
+    }
+    printf("\nmodel input num: %d\n", io_num.n_input);
+    rknn_tensor_attr input_attrs[io_num.n_input];
     memset(input_attrs, 0, sizeof(input_attrs));
-    for (int i = 0; i < io_num.n_input; i++)
-    {
+    for(uint32_t i = 0; i < io_num.n_input; i++) {
         input_attrs[i].index = i;
-        ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
-        if (ret < 0)
-        {
+        ret                  = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
             printf("rknn_init error ret=%d\n", ret);
-            exit(-1);
+
         }
+        dump_tensor_attr(&(input_attrs[i]));
     }
 
-    // 设置输出数组
-    output_attrs = new rknn_tensor_attr[io_num.n_output];
-    memset(output_attrs, 0, sizeof(output_attrs) );
-    for (int i = 0; i < io_num.n_output; i++)
-    {
+    printf("\nmodel output num: %d\n", io_num.n_output);
+    rknn_tensor_attr output_attrs[io_num.n_output];
+    memset(output_attrs, 0, sizeof(output_attrs));
+    for(uint32_t i = 0; i < io_num.n_output; i++) {
         output_attrs[i].index = i;
-        ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        ret                   = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        dump_tensor_attr(&(output_attrs[i]));
     }
 
-    // 设置输入参数
-    if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
+    // Set to context
+    rknn_app_ctx.rknn_ctx = ctx;
+
+    // TODO
+    if (output_attrs[0].qnt_type == RKNN_TENSOR_QNT_AFFINE_ASYMMETRIC && output_attrs[0].type != RKNN_TENSOR_FLOAT16)
     {
-        printf("model is NCHW input fmt\n");
-        channel = input_attrs[0].dims[1];
-        height = input_attrs[0].dims[2];
-        width = input_attrs[0].dims[3];
+        rknn_app_ctx.is_quant = true;
     }
     else
     {
-        printf("model is NHWC input fmt\n");
-        height = input_attrs[0].dims[1];
-        width = input_attrs[0].dims[2];
-        channel = input_attrs[0].dims[3];
+        rknn_app_ctx.is_quant = false;
     }
 
-    memset(inputs, 0, sizeof(inputs));
-    inputs[0].index = 0;
-    inputs[0].type = RKNN_TENSOR_UINT8;
-    inputs[0].size = width * height * channel;
-    inputs[0].fmt = RKNN_TENSOR_NHWC;
-    inputs[0].pass_through = 0;
+    rknn_app_ctx.io_num = io_num;
+    rknn_app_ctx.input_attrs = (rknn_tensor_attr *)malloc(io_num.n_input * sizeof(rknn_tensor_attr));
+    memcpy(rknn_app_ctx.input_attrs, input_attrs, io_num.n_input * sizeof(rknn_tensor_attr));
+    rknn_app_ctx.output_attrs = (rknn_tensor_attr *)malloc(io_num.n_output * sizeof(rknn_tensor_attr));
+    memcpy(rknn_app_ctx.output_attrs, output_attrs, io_num.n_output * sizeof(rknn_tensor_attr));
+
+    if (input_attrs[0].fmt == RKNN_TENSOR_NCHW){
+        printf("model input is NCHW\n");
+        rknn_app_ctx.model_channel = input_attrs[0].dims[1];
+        rknn_app_ctx.model_height = input_attrs[0].dims[2];
+        rknn_app_ctx.model_width = input_attrs[0].dims[3];
+    }
+    else{
+        printf("model input is NHWC\n");
+        rknn_app_ctx.model_height = input_attrs[0].dims[1];
+        rknn_app_ctx.model_width = input_attrs[0].dims[2];
+        rknn_app_ctx.model_channel = input_attrs[0].dims[3];
+    }
+    printf("model input height=%d, width=%d, channel=%d\n",
+           rknn_app_ctx.model_height, rknn_app_ctx.model_width, rknn_app_ctx.model_channel);
+
+    if(ret != 0){
+        printf("init_yolox_model fail! ret=%d model_path=%s\n", ret, model_path);
+
+    }
 }
 
-rknn_lite::~rknn_lite()
-{
-    ret = rknn_destroy(ctx);
-    delete[] input_attrs;
-    delete[] output_attrs;
-    if (model_data)
-        free(model_data);
-}
+vector<bbox_t> rknn_lite::interf(){
 
-int rknn_lite::interf()
-{
     cv::Mat img;
 
     int img_width = ori_img.cols;
@@ -174,6 +180,11 @@ int rknn_lite::interf()
     memset(&src_rect, 0, sizeof(src_rect));
     memset(&dst_rect, 0, sizeof(dst_rect));
 
+    int width   = rknn_app_ctx.model_width;
+    int height  = rknn_app_ctx.model_height;
+    rknn_input inputs[rknn_app_ctx.io_num.n_input];
+    rknn_output outputs[rknn_app_ctx.io_num.n_output];
+
     // You may not need resize when src resulotion equals to dst resulotion
     void *resize_buf = nullptr;
 
@@ -184,7 +195,7 @@ int rknn_lite::interf()
 
         src = wrapbuffer_virtualaddr((void *)img.data, img_width, img_height, RK_FORMAT_RGB_888);
         dst = wrapbuffer_virtualaddr((void *)resize_buf,  width,  height, RK_FORMAT_RGB_888);
-         ret = imcheck(src, dst, src_rect, dst_rect);
+        ret = imcheck(src, dst, src_rect, dst_rect);
         if (IM_STATUS_NOERROR !=  ret)
         {
             printf("%d, check error! %s", __LINE__, imStrError((IM_STATUS) ret));
@@ -196,65 +207,47 @@ int rknn_lite::interf()
         inputs[0].buf = resize_buf;
     }
     else
+    {
         inputs[0].buf = (void *)img.data;
+    }
 
-    rknn_inputs_set(ctx, io_num.n_input, inputs);
+    object_detect_result_list od_results;
 
-    //std::cout<<"1"<<std::endl;
+    // Set Input Data
+    inputs[0].index = 0;
+    inputs[0].type = RKNN_TENSOR_UINT8;
+    inputs[0].fmt = RKNN_TENSOR_NHWC;
+    inputs[0].size = rknn_app_ctx.model_width * rknn_app_ctx.model_height * rknn_app_ctx.model_channel;
+    inputs[0].pass_through = 0;
 
-    rknn_output outputs[ io_num.n_output]; // 0x49 0x4C 0x47 0x49 0x4D
+    // allocate inputs
+    ret = rknn_inputs_set(rknn_app_ctx.rknn_ctx, rknn_app_ctx.io_num.n_input, inputs);
+    if (ret < 0) {
+        printf("rknn_input_set fail! ret=%d\n", ret);
+    }
+    // allocate outputs
     memset(outputs, 0, sizeof(outputs));
-    for (int i = 0; i <  io_num.n_output; i++)
-        outputs[i].want_float = 0;
-     ret = rknn_run(ctx, NULL);
-     ret = rknn_outputs_get(ctx, io_num.n_output, outputs, NULL);
-    // std::cout<<"2"<<std::endl;
+    for (uint32_t i = 0; i < rknn_app_ctx.io_num.n_output; i++) {
+        outputs[i].index = i;
+        outputs[i].want_float = (!rknn_app_ctx.is_quant);
+    }
+    // run
+    rknn_run(rknn_app_ctx.rknn_ctx, nullptr);
+    rknn_outputs_get(rknn_app_ctx.rknn_ctx, rknn_app_ctx.io_num.n_output, outputs, NULL);
+
     // post process
-    const float nms_threshold = NMS_THRESH;
-    const float box_conf_threshold = BOX_THRESH;
     float scale_w = (float) width / img_width;
     float scale_h = (float) height / img_height;
 
-    object_detect_result_list detect_result_group;
-    std::vector<float> out_scales;
-    std::vector<int32_t> out_zps;
-
-    for (int i = 0; i <  io_num.n_output; ++i)
-    {
-        out_scales.push_back( output_attrs[i].scale);
-        out_zps.push_back( output_attrs[i].zp);
-    }
-
-    rknn_app_ctx.rknn_ctx=ctx;
-    rknn_app_ctx.model_channel=channel;
-    rknn_app_ctx.model_width=width;
-    rknn_app_ctx.model_height=height;
-
-    rknn_app_ctx.io_num =io_num;
-    rknn_app_ctx.input_attrs = (rknn_tensor_attr *)malloc(io_num.n_input * sizeof(rknn_tensor_attr));
-    memcpy(rknn_app_ctx.input_attrs, input_attrs, io_num.n_input * sizeof(rknn_tensor_attr));
-    rknn_app_ctx.output_attrs = (rknn_tensor_attr *)malloc(io_num.n_output * sizeof(rknn_tensor_attr));
-    memcpy(rknn_app_ctx.output_attrs, output_attrs, io_num.n_output * sizeof(rknn_tensor_attr));
-
-    if (output_attrs[0].qnt_type == RKNN_TENSOR_QNT_AFFINE_ASYMMETRIC && output_attrs[0].type != RKNN_TENSOR_FLOAT16)
-    {
-        rknn_app_ctx.is_quant = true;
-    }
-    else
-    {
-        rknn_app_ctx.is_quant = false;
-    }
-
-    post_process(&rknn_app_ctx, outputs, box_conf_threshold, nms_threshold, scale_w, scale_h, &detect_result_group);
-
+    post_process(&rknn_app_ctx, outputs, BOX_THRESH, NMS_THRESH, scale_w, scale_h, &od_results);
 
 
     // Draw Objects
-    // std::cout<<"3"<<std::endl;
-     std::vector<bbox_t> result_vec;
-    for (int i = 0; i < detect_result_group.count; i++)
+    char text[256];
+    std::vector<bbox_t> result_vec;
+    for (int i = 0; i < od_results.count; i++)
     {
-        object_detect_result *det_result = &(detect_result_group.results[i]);
+        object_detect_result *det_result = &(od_results.results[i]);
 
         bbox_t f;
         f.x =  det_result->box.left;
@@ -262,22 +255,16 @@ int rknn_lite::interf()
         f.h = det_result->box.bottom - det_result->box.top;
         f.w = det_result->box.right - det_result->box.left;
         f.obj_id = det_result->cls_id;
-        f.prob = det_result->prop/10.0f;
+        f.prob = det_result->prop*100;
         result_vec.push_back(f);
     }
-
     p =  result_vec;
+    rknn_outputs_release(ctx, rknn_app_ctx.io_num.n_output, outputs);
+       if (resize_buf) {
+             free(resize_buf);
+        }
 
-    char text[256];
-
-    //std::cout<<"5"<<std::endl;
-    ret = rknn_outputs_release(ctx, io_num.n_output, outputs);
-    if (resize_buf)
-    {
-        free(resize_buf);
-    }
-   // std::cout<<"6"<<std::endl;
-    return 0;
+    return p;
 }
 
 static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz)

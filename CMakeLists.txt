@@ -36,6 +36,7 @@ add_executable(echovisionRktoolkit2
         src/postprocess.cc
         src/preprocess.cc
         include/MotDetect.hpp
+        src/rk_common.cpp
 )
 
 

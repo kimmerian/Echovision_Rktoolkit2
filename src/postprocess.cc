@@ -274,10 +274,10 @@ static int process_fp32(float *box_tensor, float *score_tensor, float *score_sum
 }
 
 
-int post_process(rknn_app_context_t *app_ctx, rknn_output *outputs, float conf_threshold, float nms_threshold, float scale_w, float scale_h, object_detect_result_list *od_results)
+int post_process(rknn_app_context_t *app_ctx, rknn_output *outputsi, float conf_threshold, float nms_threshold, float scale_w, float scale_h, object_detect_result_list *od_results)
 {
 
-    //rknn_output *_outputs = (rknn_output *)outputs;
+    rknn_output *_outputs = (rknn_output *)outputsi;
 
     std::vector<float> filterBoxes;
     std::vector<float> objProbs;
@@ -301,7 +301,7 @@ int post_process(rknn_app_context_t *app_ctx, rknn_output *outputs, float conf_t
         int32_t score_sum_zp = 0;
         float score_sum_scale = 1.0;
         if (output_per_branch == 3){
-            score_sum = outputs[i*output_per_branch + 2].buf;
+            score_sum = _outputs[i*output_per_branch + 2].buf;
             score_sum_zp = app_ctx->output_attrs[i*output_per_branch + 2].zp;
             score_sum_scale = app_ctx->output_attrs[i*output_per_branch + 2].scale;
         }
@@ -314,15 +314,15 @@ int post_process(rknn_app_context_t *app_ctx, rknn_output *outputs, float conf_t
 
         if (app_ctx->is_quant)
         {
-            validCount += process_i8((int8_t *)outputs[box_idx].buf, app_ctx->output_attrs[box_idx].zp, app_ctx->output_attrs[box_idx].scale,
-                                     (int8_t *)outputs[score_idx].buf, app_ctx->output_attrs[score_idx].zp, app_ctx->output_attrs[score_idx].scale,
+            validCount += process_i8((int8_t *)_outputs[box_idx].buf, app_ctx->output_attrs[box_idx].zp, app_ctx->output_attrs[box_idx].scale,
+                                     (int8_t *)_outputs[score_idx].buf, app_ctx->output_attrs[score_idx].zp, app_ctx->output_attrs[score_idx].scale,
                                      (int8_t *)score_sum, score_sum_zp, score_sum_scale,
                                      grid_h, grid_w, stride, dfl_len,
                                      filterBoxes, objProbs, classId, conf_threshold);
         }
         else
         {
-            validCount += process_fp32((float *)outputs[box_idx].buf, (float *)outputs[score_idx].buf, (float *)score_sum,
+            validCount += process_fp32((float *)_outputs[box_idx].buf, (float *)_outputs[score_idx].buf, (float *)score_sum,
                                        grid_h, grid_w, stride, dfl_len,
                                        filterBoxes, objProbs, classId, conf_threshold);
         }

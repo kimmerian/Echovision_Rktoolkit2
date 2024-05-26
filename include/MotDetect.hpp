@@ -104,6 +104,48 @@ public:
         return resultvec;
     }
 
+    vector<bbox_t> detectRectanglesInsideObjects(Mat frame,vector<bbox_t> objects)
+    {
+        pBackSub->apply(frame, fgMask);
+        erode(fgMask, fgMask, cv::Mat());
+        dilate(fgMask, fgMask, cv::Mat());
+
+        std::vector<std::vector<cv::Point>> contours;
+        findContours(fgMask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        vector<bbox_t> boxes ={};
+
+        if(objects.size() == 0){return boxes;}
+
+        for(int t= 0;t<objects.size();t++)
+        {
+            bbox_t box = objects[t];
+            for(int n = 0;n< contours.size();n++)
+            {
+                Rect motionBox = boundingRect(contours[n]);
+                double area = contourArea(contours[n]);
+                if(area > 500) {
+                    int x = motionBox.x + motionBox.width / 2;
+                    int y = motionBox.y + motionBox.height / 2;
+                    if (
+                            (x > box.x) && (x < box.x + box.w) &&
+                            (y > box.y) && (y < box.y + box.h)
+                            ) {
+                        bbox_t point;
+                        point.x = motionBox.x;
+                        point.y = motionBox.y;
+                        point.w = motionBox.width;
+                        point.h = motionBox.height;
+                        point.track_id = box.track_id;
+                        point.obj_id = box.obj_id;
+                        boxes.push_back(point);
+                        break;
+                    }
+                }
+            }
+        }
+        return boxes;
+    }
+
 };
 
 #endif //ECHOVISIONRKTOOLKIT2_MOTDETECT_HPP
