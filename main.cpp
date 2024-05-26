@@ -17,7 +17,7 @@
 void consumerBoxQ(CQueue<vector<bbox_t>>& queue,int camId);
 std::string conv_toJson(vector<bbox_t> val,int camId);
 
-uint16_t n = 1,frames=0;
+uint16_t n = 3,frames=0;
 uint8_t fps = 1;
 
 cv::VideoCapture rtsp1, rtsp2;
@@ -37,13 +37,11 @@ std::string movementStatus="static";
 
 int main() {
     CQueue<vector<bbox_t>> c1_boxQ;
-   // CQueue<vector<bbox_t>> c2_boxQ;
+    CQueue<vector<bbox_t>> c2_boxQ;
 
     Classes = FILEMAN::readClasses();
 
-    vector<rknn_lite *> rkpool;
-    dpool::ThreadPool pool(n);
-    queue<std::future<vector<bbox_t>>> futs;
+
 
     vector<string> pipes =  FILEMAN::readIniFile();
 
@@ -75,24 +73,28 @@ int main() {
 
 
     init_pipe1(hede);
-
+    init_pipe2(hede);
     char *model_name = (char *) model.c_str();
+
+    vector<rknn_lite *> rkpool;
+    dpool::ThreadPool pool(n);
+    vector<std::future<vector<bbox_t>>> futs;
 
     rknn_lite *ptr;
     for (int i = 0; i < n; i++) {
         ptr = new rknn_lite(model_name, i % 3);
         rkpool.push_back(ptr);
         rtsp1 >> ptr->ori_img;
-        futs.push(pool.submit(&rknn_lite::interf, &(*ptr)));
+        futs.push_back(pool.submit(&rknn_lite::interf, &(*ptr)));
     }
 
     track_kalman_t c1_kalman(64, 2,20, cv::Size(1920, 1080));
-   // track_kalman_t c2_kalman(64, 10,100, cv::Size(1920, 1080));
+    track_kalman_t c2_kalman(64, 10,100, cv::Size(1920, 1080));
 
     SSocket::init();
 
     std::thread c1_consumerThread(consumerBoxQ, std::ref(c1_boxQ),1);
- //   std::thread c2_consumerThread(consumerBoxQ, std::ref(c2_boxQ),2);
+    std::thread c2_consumerThread(consumerBoxQ, std::ref(c2_boxQ),2);
 
 
 
@@ -114,10 +116,13 @@ int main() {
                     break;
                 }*/
 
-                futs.pop();
                 rkpool[0]->source = "1";
-                 futs.push(pool.submit(&rknn_lite::interf, &(*rkpool[0])));
-                vector<bbox_t> proccResult =   futs.front().get();
+                 futs[0]=(pool.submit(&rknn_lite::interf, &(*rkpool[0])));
+
+                 vector<bbox_t> proccResult = futs[0].get();
+
+
+
 
                 vector<bbox_t> c1_kalmanresult = c1_kalman.correct(&proccResult);
                 vector<bbox_t> tempc1result;
@@ -153,28 +158,8 @@ int main() {
 
                 c1_boxQ.push(tempc1result);
 
-                /*if(c1_kalmanresult.size()>0) {
-                    for (int t = 0; t < c1_kalmanresult.size() - 1; t++) {
-
-                        bbox_t res = c1_kalmanresult[t];
-
-                        cv::rectangle(rkpool[0]->ori_img, cv::Point(res.x, res.y),
-                                      cv::Point(res.x + res.w,
-                                                res.y + res.h),
-                                      cv::Scalar(0, 0, 250), 1);
-
-                        putText(rkpool[0]->ori_img, std::to_string(res.obj_id), cv::Point(res.x, res.y + 12),
-                                cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255));
-
-                    }
-                }*/
-
-                //And we copy the data from frame to old_frame
-
-
-
-
                 cv::imshow("fr",rkpool[0]->ori_img);
+
             }
             else
             {
@@ -183,7 +168,7 @@ int main() {
 
                 if(pipeCounter1 >= 10)
                 {
-                    init_pipe1(stream1);
+                    init_pipe1(hede);
                 }
                 sleep(1);
             }
@@ -193,10 +178,11 @@ int main() {
             const char* err_msg = e.what();
             std::cout << "Pipe 1 exception caught: " << err_msg << std::endl;
             pipeCounter1++;
-            if(pipeCounter1 >= 100)
+            if(pipeCounter1 >= 10)
             {
-                init_pipe1(stream1);
+                init_pipe1(hede);
             }
+            sleep(1);
         }
 
 
@@ -205,9 +191,6 @@ int main() {
             if (rtsp2.read(rkpool[1]->ori_img))
             {
 
-                if (futs.front().get() != 0) {
-                    break;
-                }
 
                 futs.pop();
                 rkpool[1]->source = "2";
@@ -238,10 +221,11 @@ int main() {
             const char* err_msg = e.what();
             std::cout << "Pipe2 exception caught: " << err_msg << std::endl;
             pipeCounter2++;
-            if(pipeCounter2 >= 100)
+            if(pipeCounter2 >= 10)
             {
-                init_pipe2(stream2);
+                init_pipe2(hede);
             }
+            sleep(1);
         }*/
 
         frames++;
