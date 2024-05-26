@@ -123,7 +123,7 @@ public:
             {
                 Rect motionBox = boundingRect(contours[n]);
                 double area = contourArea(contours[n]);
-                if(area > 500) {
+                if(area > 200) {
                     int x = motionBox.x + motionBox.width / 2;
                     int y = motionBox.y + motionBox.height / 2;
                     if (
@@ -138,6 +138,7 @@ public:
                         point.track_id = box.track_id;
                         point.obj_id = box.obj_id;
                         boxes.push_back(point);
+                     //   cv::drawContours(frame,contours,n,Scalar(0,0,255),1,LINE_8,cv::noArray(),2147483647,cv::Point(0,0));
                         break;
                     }
                 }

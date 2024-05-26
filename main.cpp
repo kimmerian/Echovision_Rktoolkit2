@@ -35,9 +35,11 @@ vector<string> Classes;
 float scaler;
 std::string movementStatus="static";
 
+CQueue<vector<bbox_t>> c1_boxQ;
+CQueue<vector<bbox_t>> c2_boxQ;
+
 int main() {
-    CQueue<vector<bbox_t>> c1_boxQ;
-    CQueue<vector<bbox_t>> c2_boxQ;
+
 
     Classes = FILEMAN::readClasses();
 
@@ -149,10 +151,10 @@ int main() {
                     movementStatus="movement";
                     for (auto item: motVector) {
                         tempc1result.push_back(item);
-                        cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x+50, item.y+40),
+                      /*  cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x+50, item.y+40),
                                       cv::Point(item.x + item.w,
                                                 item.y + item.h),
-                                      cv::Scalar(0, 250, 250), 3);
+                                      cv::Scalar(0, 250, 250), 3);*/
                     }
                 }
 
@@ -232,9 +234,11 @@ int main() {
     }
 
     rtsp1.release();
-   // rtsp2.release();
+    rtsp2.release();
+    c1_boxQ.shutdown();
+    c2_boxQ.shutdown();
     c1_consumerThread.join();
-    //c2_consumerThread.join();
+    c2_consumerThread.join();
 
     cv::destroyAllWindows();
     return 0;
