@@ -374,6 +374,7 @@ int post_process(rknn_app_context_t *app_ctx, rknn_output *outputsi, float conf_
         od_results->results[last_count].prop = obj_conf;
         od_results->results[last_count].cls_id = id;
         last_count++;
+
     }
     od_results->count = last_count;
     return 0;

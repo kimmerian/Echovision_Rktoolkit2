@@ -12,7 +12,7 @@ find_package(OpenCV REQUIRED)
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 set(EXTRA_LIBS ${OpenCV_LIBS} /usr/local/lib/librknnrt.so)
-
+set(RAPIDJSON_LIBS_PATH ${RAPIDJSON}/include/rapidjson)
 
 include_directories(include ${OpenCV_INCLUDE_DIRS})
 
@@ -37,13 +37,16 @@ add_executable(echovisionRktoolkit2
         src/preprocess.cc
         include/MotDetect.hpp
         src/rk_common.cpp
+        include/JsonPacker.h
+        src/JsonPacker.cpp
 )
 
 
-cmake_print_variables(RGA_PATH)
+cmake_print_variables(OpenCV_INCLUDE_DIRS)
 
 target_link_libraries(echovisionRktoolkit2
         ${EXTRA_LIBS}
         ${OpenCV_LIBS}
         ${RGA_LIB}
+        ${RAPIDJSON}
 )

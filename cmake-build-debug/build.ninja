@@ -91,6 +91,13 @@ build CMakeFiles/echovisionRktoolkit2.dir/src/rk_common.cpp.o: CXX_COMPILER__ech
   OBJECT_DIR = CMakeFiles/echovisionRktoolkit2.dir
   OBJECT_FILE_DIR = CMakeFiles/echovisionRktoolkit2.dir/src
 
+build CMakeFiles/echovisionRktoolkit2.dir/src/JsonPacker.cpp.o: CXX_COMPILER__echovisionRktoolkit2_unscanned_Debug /home/rock/clion_move/echovisionRktoolkit2/src/JsonPacker.cpp || cmake_object_order_depends_target_echovisionRktoolkit2
+  DEP_FILE = CMakeFiles/echovisionRktoolkit2.dir/src/JsonPacker.cpp.o.d
+  FLAGS = -pthread -g -std=gnu++14 -fdiagnostics-color=always
+  INCLUDES = -I/home/rock/clion_move/echovisionRktoolkit2/include -I/include -I/home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588/include -isystem /usr/local/include/opencv4
+  OBJECT_DIR = CMakeFiles/echovisionRktoolkit2.dir
+  OBJECT_FILE_DIR = CMakeFiles/echovisionRktoolkit2.dir/src
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target echovisionRktoolkit2
@@ -99,7 +106,7 @@ build CMakeFiles/echovisionRktoolkit2.dir/src/rk_common.cpp.o: CXX_COMPILER__ech
 #############################################
 # Link the executable echovisionRktoolkit2
 
-build echovisionRktoolkit2: CXX_EXECUTABLE_LINKER__echovisionRktoolkit2_Debug CMakeFiles/echovisionRktoolkit2.dir/main.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/socketsender.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/file_manager.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/postprocess.cc.o CMakeFiles/echovisionRktoolkit2.dir/src/preprocess.cc.o CMakeFiles/echovisionRktoolkit2.dir/src/rk_common.cpp.o | /usr/local/lib/librknnrt.so /usr/local/lib/libopencv_gapi.so.4.9.0 /usr/local/lib/libopencv_highgui.so.4.9.0 /usr/local/lib/libopencv_ml.so.4.9.0 /usr/local/lib/libopencv_objdetect.so.4.9.0 /usr/local/lib/libopencv_photo.so.4.9.0 /usr/local/lib/libopencv_stitching.so.4.9.0 /usr/local/lib/libopencv_video.so.4.9.0 /usr/local/lib/libopencv_videoio.so.4.9.0 /home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588/lib/Linux/aarch64/librga.so /usr/local/lib/libopencv_imgcodecs.so.4.9.0 /usr/local/lib/libopencv_dnn.so.4.9.0 /usr/local/lib/libopencv_calib3d.so.4.9.0 /usr/local/lib/libopencv_features2d.so.4.9.0 /usr/local/lib/libopencv_flann.so.4.9.0 /usr/local/lib/libopencv_imgproc.so.4.9.0 /usr/local/lib/libopencv_core.so.4.9.0
+build echovisionRktoolkit2: CXX_EXECUTABLE_LINKER__echovisionRktoolkit2_Debug CMakeFiles/echovisionRktoolkit2.dir/main.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/socketsender.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/file_manager.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/postprocess.cc.o CMakeFiles/echovisionRktoolkit2.dir/src/preprocess.cc.o CMakeFiles/echovisionRktoolkit2.dir/src/rk_common.cpp.o CMakeFiles/echovisionRktoolkit2.dir/src/JsonPacker.cpp.o | /usr/local/lib/librknnrt.so /usr/local/lib/libopencv_gapi.so.4.9.0 /usr/local/lib/libopencv_highgui.so.4.9.0 /usr/local/lib/libopencv_ml.so.4.9.0 /usr/local/lib/libopencv_objdetect.so.4.9.0 /usr/local/lib/libopencv_photo.so.4.9.0 /usr/local/lib/libopencv_stitching.so.4.9.0 /usr/local/lib/libopencv_video.so.4.9.0 /usr/local/lib/libopencv_videoio.so.4.9.0 /home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588/lib/Linux/aarch64/librga.so /usr/local/lib/libopencv_imgcodecs.so.4.9.0 /usr/local/lib/libopencv_dnn.so.4.9.0 /usr/local/lib/libopencv_calib3d.so.4.9.0 /usr/local/lib/libopencv_features2d.so.4.9.0 /usr/local/lib/libopencv_flann.so.4.9.0 /usr/local/lib/libopencv_imgproc.so.4.9.0 /usr/local/lib/libopencv_core.so.4.9.0
   FLAGS = -pthread -g
   LINK_LIBRARIES = -Wl,-rpath,/usr/local/lib:/home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588/lib/Linux/aarch64  /usr/local/lib/librknnrt.so  /usr/local/lib/libopencv_gapi.so.4.9.0  /usr/local/lib/libopencv_highgui.so.4.9.0  /usr/local/lib/libopencv_ml.so.4.9.0  /usr/local/lib/libopencv_objdetect.so.4.9.0  /usr/local/lib/libopencv_photo.so.4.9.0  /usr/local/lib/libopencv_stitching.so.4.9.0  /usr/local/lib/libopencv_video.so.4.9.0  /usr/local/lib/libopencv_videoio.so.4.9.0  /home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588/lib/Linux/aarch64/librga.so  /usr/local/lib/libopencv_imgcodecs.so.4.9.0  /usr/local/lib/libopencv_dnn.so.4.9.0  /usr/local/lib/libopencv_calib3d.so.4.9.0  /usr/local/lib/libopencv_features2d.so.4.9.0  /usr/local/lib/libopencv_flann.so.4.9.0  /usr/local/lib/libopencv_imgproc.so.4.9.0  /usr/local/lib/libopencv_core.so.4.9.0
   OBJECT_DIR = CMakeFiles/echovisionRktoolkit2.dir

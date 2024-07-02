@@ -165,7 +165,7 @@ public:
 
 
 
-    track_kalman_t(int _max_objects = 64, int _min_frames = 10, float _max_dist = 100, cv::Size _img_size = cv::Size(1920, 1080)) :
+    track_kalman_t(int _max_objects = 100, int _min_frames = 2, float _max_dist = 5, cv::Size _img_size = cv::Size(10000, 10000)) :
             track_id_counter(0), max_objects(_max_objects), min_frames(_min_frames), max_dist(_max_dist), img_size(_img_size)
     {
         kalman_vec.resize(max_objects);
@@ -187,7 +187,7 @@ public:
         for (size_t state_id = 0; state_id < track_id_state_id_time.size(); ++state_id)
         {
             float time_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - track_id_state_id_time[state_id].last_time).count();
-            float time_wait = 0.5;    // 0.5 second
+            float time_wait = 2.0f;    // 0.5 second
             if (track_id_state_id_time[state_id].track_id > -1)
             {
                 if ((result_vec_pred[state_id].x > img_size.width) ||
@@ -202,7 +202,6 @@ public:
                 }
             }
         }
-
     }
 
     tst_t get_state_id(bbox_t find_box, std::vector<bool> &busy_vec)

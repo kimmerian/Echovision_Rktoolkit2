@@ -6,7 +6,6 @@
 #include <atomic>         // std::atomic, std::atomic_flag, ATOMIC_FLAG_INIT
 #include <iostream>
 #include "rga.h"
-//#include "sort.h"
 #include "im2d.h"
 #include "RgaUtils.h"
 #include "rknn_api.h"
@@ -18,6 +17,8 @@
 #include "list"
 #include "globaltypes.h"
 #include "rk_common.h"
+#include "kalman.hpp"
+
 
 #include <math.h>
 
@@ -25,6 +26,7 @@ using cv::Mat;
 using std::queue;
 using std::vector;
 
+float dispcoef = 0.0015625f;
 
 static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz);
 static unsigned char *load_model(const char *filename, int *model_size);
@@ -41,17 +43,23 @@ private:
     rknn_input inputs[1];
     int ret;
     int channel = 3;
-    int width = 0;
-    int height = 0;
+    int previousDetectionCount;
     rknn_app_context_t rknn_app_ctx;
+    track_kalman_t c1_kalman;
+
+
+    int nextId = 0;
+    const int maxFramesWithoutUpdate = 10;
+
 public:
   //  sortproc sorting;
     std::vector<bbox_t> p;
     Mat ori_img;
-    vector<bbox_t> interf();
+    vector<bbox_t>  interf();
     rknn_lite(char *dst, int n);
     ~rknn_lite();
     std::string source;
+    vector<std::string> ClassList;
 };
 
 rknn_lite::rknn_lite(char *model_path, int n)
@@ -158,6 +166,7 @@ rknn_lite::rknn_lite(char *model_path, int n)
         printf("init_yolox_model fail! ret=%d model_path=%s\n", ret, model_path);
 
     }
+    //track_kalman_t c1_kalman = track_kalman_t(64, 3,40, cv::Size(1920, 1080));
 }
 
 vector<bbox_t> rknn_lite::interf(){
@@ -241,30 +250,61 @@ vector<bbox_t> rknn_lite::interf(){
 
     post_process(&rknn_app_ctx, outputs, BOX_THRESH, NMS_THRESH, scale_w, scale_h, &od_results);
 
-
-    // Draw Objects
-    char text[256];
-    std::vector<bbox_t> result_vec;
-    for (int i = 0; i < od_results.count; i++)
+    vector<bbox_t> od_bbox_vect;
+    for(int t=0;t<od_results.count;t++)
     {
-        object_detect_result *det_result = &(od_results.results[i]);
+        object_detect_result det_obj = od_results.results[t];
+        if ((det_obj.box.right-det_obj.box.left) *(det_obj.box.bottom-det_obj.box.top) > 256 && det_obj.box.bottom-det_obj.box.top > height*0.048 ) {
 
-        bbox_t f;
-        f.x =  det_result->box.left;
-        f.y = det_result->box.top;
-        f.h = det_result->box.bottom - det_result->box.top;
-        f.w = det_result->box.right - det_result->box.left;
-        f.obj_id = det_result->cls_id;
-        f.prob = det_result->prop*100;
-        result_vec.push_back(f);
+            t_detectedColor centerColor,topColor1,topColor2,bottomColor;
+
+            int cx = det_obj.box.left+((det_obj.box.right-det_obj.box.left)/2);
+            int cy =det_obj.box.top + ((det_obj.box.bottom-det_obj.box.top)/2);
+            int h = det_obj.box.bottom-det_obj.box.top;
+
+            cv::Vec3b color = ori_img.at<cv::Vec3b>(cx,det_obj.box.top+(h/4));
+            topColor1.r = color[2];topColor1.g=color[1];topColor1.b = color[0];
+
+            color = ori_img.at<cv::Vec3b>(cx,det_obj.box.top+(h/8)*3);
+            topColor2.r = color[2];topColor2.g=color[1];topColor2.b = color[0];
+
+            color = ori_img.at<cv::Vec3b>(cx,det_obj.box.top+(h/8)*4);
+            centerColor.r = color[2];centerColor.g=color[1];centerColor.b = color[0];
+
+            color = ori_img.at<cv::Vec3b>(cx,det_obj.box.top+(h/8)*6);
+            bottomColor.r = color[2];centerColor.g=color[1];centerColor.b = color[0];
+
+
+            bbox_t v;
+            v.x = ((float)det_obj.box.left *dispcoef);
+            v.y =((float)det_obj.box.top*dispcoef);
+            v.w = ((float)det_obj.box.right*dispcoef)-((float)det_obj.box.left*dispcoef);
+            v.h = ((float)det_obj.box.bottom*dispcoef)-((float)det_obj.box.top*dispcoef);
+            v.obj_id = ClassList[det_obj.cls_id];
+            v.track_id = det_obj.track_id;
+            v.prob = det_obj.prop;
+            v.color= "["+ std::to_string(color[0])+","+std::to_string(color[1])+","+std::to_string(color[2])+"]";
+            v.DetectedColor[0]=topColor1;
+            v.DetectedColor[1]=topColor2;
+            v.DetectedColor[2]=centerColor;
+            v.DetectedColor[3]=bottomColor;
+
+            od_bbox_vect.push_back(v);
+        }
     }
-    p =  result_vec;
+
+    vector<bbox_t> kalmanResultVector;
+
+       kalmanResultVector = c1_kalman.correct(&od_bbox_vect);
+
+    previousDetectionCount = od_bbox_vect.size();
+
     rknn_outputs_release(ctx, rknn_app_ctx.io_num.n_output, outputs);
        if (resize_buf) {
              free(resize_buf);
         }
 
-    return p;
+       return kalmanResultVector;
 }
 
 static unsigned char *load_data(FILE *fp, size_t ofst, size_t sz)

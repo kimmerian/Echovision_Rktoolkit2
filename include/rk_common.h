@@ -33,6 +33,7 @@ typedef struct {
     image_rect_t box;
     float prop;
     int cls_id;
+    int track_id;
 } object_detect_result;
 
 typedef struct {

@@ -12,12 +12,15 @@
 #include "src/cqueue.hpp"
 #include "file_manager.h"
 #include "MotDetect.hpp"
+#include "JsonPacker.h"
 
 
-void consumerBoxQ(CQueue<vector<bbox_t>>& queue,int camId);
+void consumerBoxQ(CQueue<objectPack>& queue);
 std::string conv_toJson(vector<bbox_t> val,int camId);
 
-uint16_t n = 3,frames=0;
+void pipelineRestart(std::string pipeline,int cameraId);
+
+uint16_t n = 2,frames=0;
 uint8_t fps = 1;
 
 cv::VideoCapture rtsp1, rtsp2;
@@ -33,10 +36,12 @@ vector<string> Classes;
 
 
 float scaler;
-std::string movementStatus="static";
+std::string movementStatus1,movementStatus2 ="static";
+int movementStatusCounter1,movementStatusCounter2 = 0;
 
-CQueue<vector<bbox_t>> c1_boxQ;
-CQueue<vector<bbox_t>> c2_boxQ;
+
+CQueue<objectPack>  c1_boxQ;
+CQueue<objectPack>  c2_boxQ;
 
 int main() {
 
@@ -53,29 +58,21 @@ int main() {
   */
 
 
-    string stream1 = pipes[0];//"rtspsrc location=rtsp://root:Belixys123*@192.168.88.179/axis-media/media.amp?resolution=640x480&fps=10 ! watchdog timeout=1000  ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1";
-   // string stream2 = pipes[1];//"rtspsrc location=rtsp://admin:Belixys123*@192.168.88.178:554//cam/realmonitor?channel=1&subtype=2 ! watchdog timeout=1000  !  decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink drop=1";
-    string model ="/home/rock/YoloModels/yolov8m.rknn";
+    string stream1 = pipes[0] ;//"rtspsrc location=rtsp://admin:Belixys123@192.168.88.178:554/cam/realmonitor?channel=1&subtype=0 ! rtph264depay ! h264parse ! tee name=t"
+                     " t. ! queue ! mppvideodec format=BGR height=1080 width=1920 ! queue ! appsink sync=false drop=1 "
+                     " t. ! queue ! mppvideodec format=NV12 !  mpph264enc rc-mode=vbr bps-min=2000000 bps=4000000 bps-max=5000000 gop=50 qp-max=51 qp-min=35 ! rtspclientsink location=rtsp://localhost:8554/c1"
+                     " t. ! queue ! mppvideodec format=NV12  !  mpph264enc rc-mode=vbr bps-min=250000 bps=500000 bps-max=1000000 gop=50 qp-max=51 qp-min=35 ! rtspclientsink location=rtsp://localhost:8554/c1L";
 
-    usleep(100000);
-   // init_pipe2(stream2);
-  //  usleep(100000);
-   std::string hede ="v4l2src device=/dev/video0 ! tee name=t"
-                     " t. ! queue ! mppjpegdec format=NV12 ! mpph264enc ! rtspclientsink location=rtsp://localhost:8554/c1"
-                     " t. ! queue ! mppjpegdec format=BGR ! queue ! appsink sync=false drop=1 ";
+    string stream2 = pipes[1];//"rtspsrc location=rtsp://admin:Belixys123@192.168.88.178:554/cam/realmonitor?channel=1&subtype=0 protocols=tcp ! rtph264depay ! h264parse ! tee name=t"
+                      " t. ! queue ! mppvideodec format=BGR ! queue ! appsink sync=false drop=1 "
+                      " t. ! queue ! mppvideodec format=NV12 !  mpph264enc rc-mode=vbr bps-min=2000000 bps=4000000 bps-max=5000000 gop=50 qp-max=51 qp-min=35 ! rtspclientsink location=rtsp://localhost:8554/c2";
+    string model =pipes[2];//"/home/rock/YoloModels/yolov8m.rknn";
 
-   std::string bede="rtspsrc location=rtsp://root:pass@192.168.88.179/axis-media/media.amp?camera=1&resolution=1920x1080&fps=25 protocols=tcp !  rtph264depay ! h264parse ! tee name=d"
-                    " d. ! queue ! mppvideodec format=NV12 !  mpph264enc rc-mode=vbr bps-min=2000000 bps=4000000 bps-max=5000000 gop=50 qp-max=51 qp-min=35 ! rtspclientsink location=rtsp://localhost:8554/c1"
-                    " d. ! queue ! mppvideodec format=BGR ! appsink sync=false drop=1";
-  scaler = stof(pipes[3]);
+    scaler = stof(pipes[3]);
 
-    std::string demo ="filesrc location=/mnt/ssd/videos/nvr/2024/05/21/c1/2024.05.21T16:39:49.167753.mp4 ! qtdemux ! h264parse !  mppvideodec format=BGR framerate=25/1  ! appsink sync=false ";
-    std::string demo1 ="filesrc location=/home/rock/Videos/boels.mp4  ! qtdemux  ! h264parse  ! appsink ";
+    init_pipe1(stream1);
+    init_pipe2(stream2);
 
-
-
-    init_pipe1(hede);
-    init_pipe2(hede);
     char *model_name = (char *) model.c_str();
 
     vector<rknn_lite *> rkpool;
@@ -83,84 +80,55 @@ int main() {
     vector<std::future<vector<bbox_t>>> futs;
 
     rknn_lite *ptr;
+    vector<string> classes = FILEMAN::readClasses();
     for (int i = 0; i < n; i++) {
         ptr = new rknn_lite(model_name, i % 3);
         rkpool.push_back(ptr);
+        ptr->ClassList=classes;
         rtsp1 >> ptr->ori_img;
         futs.push_back(pool.submit(&rknn_lite::interf, &(*ptr)));
     }
 
-    track_kalman_t c1_kalman(64, 2,20, cv::Size(1920, 1080));
-    track_kalman_t c2_kalman(64, 10,100, cv::Size(1920, 1080));
+    track_kalman_t c1_kalman;
+    track_kalman_t c2_kalman;
 
     SSocket::init();
 
-    std::thread c1_consumerThread(consumerBoxQ, std::ref(c1_boxQ),1);
-    std::thread c2_consumerThread(consumerBoxQ, std::ref(c2_boxQ),2);
+    std::thread c1_consumerThread(consumerBoxQ, std::ref(c1_boxQ));
+    std::thread c2_consumerThread(consumerBoxQ, std::ref(c2_boxQ));
 
+    motionDetector m_Detect1,m_Detect2;
 
+    std::thread reStartCamera();
 
-   motionDetector m_Detect;
-    //cv::Mat frame;
     while(true)
     {
         if (cv::waitKey(1) == 'q') {
             break;
         }
-
-
-
+       /// usleep(210000);
         try {
             if(rtsp1.read(rkpool[0]->ori_img))
             {
 
-               /* if (futs.front().get() == NULL) {
-                    break;
-                }*/
-
-                rkpool[0]->source = "1";
+                rkpool[0]->source = "2";
                  futs[0]=(pool.submit(&rknn_lite::interf, &(*rkpool[0])));
+                 //usleep(200000);
+                vector<bbox_t> kalmanres = futs[0].get();
+                vector<bbox_t> mogResult = m_Detect1.simpleMog2(rkpool[0]->ori_img,"1");
 
-                 vector<bbox_t> proccResult = futs[0].get();
 
+              /* if(movementStatus1 == "movement" && mogResult.size() == 0 && ((movementStatusCounter1+=1) % 5 == 0) ? true : false)
+               {
+                   movementStatus1="static";
+               }*/
 
+                if (kalmanres.size() > 0) {
+                    objectPack _tempob(kalmanres, mogResult, "c1");
+                    c1_boxQ.push(_tempob);
 
-
-                vector<bbox_t> c1_kalmanresult = c1_kalman.correct(&proccResult);
-                vector<bbox_t> tempc1result;
-
-                for (auto item: c1_kalmanresult) {
-                    item.frames_counter = frames % fps;
-                    tempc1result.push_back(item);
-
-                    cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x, item.y),
-                                  cv::Point(item.x + item.w,
-                                            item.y + item.h),
-                                  cv::Scalar(0, 0, 250), 1);
-                    cv::putText(rkpool[0]->ori_img, to_string(item.obj_id), cv::Point(item.x, item.y + 10), cv::FONT_HERSHEY_SIMPLEX, 1,
-                                cv::Scalar(150, 200, 0));
-                    cv::putText(rkpool[0]->ori_img, to_string(item.track_id), cv::Point(item.x+50, item.y + 10), cv::FONT_HERSHEY_SIMPLEX, 1,
-                                cv::Scalar(150, 250, 0));
                 }
 
-                vector<bbox_t> motVector = m_Detect.detectRectanglesInsideObjects(rkpool[0]->ori_img,c1_kalmanresult);
-
-
-                movementStatus="static";
-                if(motVector.size()>0) {
-                    movementStatus="movement";
-                    for (auto item: motVector) {
-                        tempc1result.push_back(item);
-                      /*  cv::rectangle(rkpool[0]->ori_img, cv::Point(item.x+50, item.y+40),
-                                      cv::Point(item.x + item.w,
-                                                item.y + item.h),
-                                      cv::Scalar(0, 250, 250), 3);*/
-                    }
-                }
-
-                c1_boxQ.push(tempc1result);
-
-                cv::imshow("fr",rkpool[0]->ori_img);
 
             }
             else
@@ -168,9 +136,9 @@ int main() {
                 std::cout << "Pipe 1 cant read: " << std::endl;
                 pipeCounter1++;
 
-                if(pipeCounter1 >= 10)
+                if(pipeCounter1 >= 5)
                 {
-                    init_pipe1(hede);
+                    init_pipe1(stream1);
                 }
                 sleep(1);
             }
@@ -180,55 +148,60 @@ int main() {
             const char* err_msg = e.what();
             std::cout << "Pipe 1 exception caught: " << err_msg << std::endl;
             pipeCounter1++;
-            if(pipeCounter1 >= 10)
+            if(pipeCounter1 >= 5)
             {
-                init_pipe1(hede);
+                init_pipe1(stream1);
             }
             sleep(1);
         }
 
 
 
-       /* try {
-            if (rtsp2.read(rkpool[1]->ori_img))
-            {
+       try {
+           if(rtsp2.read(rkpool[1]->ori_img))
+           {
+
+               rkpool[1]->source = "2";
+               futs[1]=(pool.submit(&rknn_lite::interf, &(*rkpool[1])));
+               //usleep(200000);
+               vector<bbox_t> kalmanres = futs[1].get();
+               vector<bbox_t> mogResult = m_Detect2.simpleMog2(rkpool[1]->ori_img,"2");
 
 
-                futs.pop();
-                rkpool[1]->source = "2";
-                futs.push(pool.submit(&rknn_lite::interf, &(*rkpool[1])));
+               /* if(movementStatus1 == "movement" && mogResult.size() == 0 && ((movementStatusCounter1+=1) % 5 == 0) ? true : false)
+                {
+                    movementStatus1="static";
+                }*/
 
-                vector<bbox_t> c2_kalmanresult = c2_kalman.correct(&rkpool[1]->p);
-                vector<bbox_t> tempc2result;
+               if (kalmanres.size() > 0) {
+                   objectPack _tempob(kalmanres, mogResult, "c2");
+                   c2_boxQ.push(_tempob);
+               }
 
-                for (auto item: c2_kalmanresult) {
-                    item.frames_counter = frames % fps;
-                    tempc2result.push_back(item);
-                }
+           }
+           else
+           {
+               std::cout << "Pipe 2 cant read: " << std::endl;
+               pipeCounter1++;
 
-                c2_boxQ.push(tempc2result);
-
-                 for (int t = 0; t < rkpool[1]->p.size(); t++) {
-                     cv::rectangle(rkpool[1]->ori_img, cv::Point(rkpool[1]->p.data()[t].x, rkpool[1]->p.data()[t].y),
-                                   cv::Point(rkpool[1]->p.data()[t].x + rkpool[1]->p.data()[t].w,
-                                             rkpool[1]->p.data()[t].y + rkpool[1]->p.data()[t].h),
-                                   cv::Scalar(0, 0, 250), 1);
-                 }
-
-                // cv::imshow("fr",rkpool[1]->ori_img);
-            }
+               if(pipeCounter2 >= 5)
+               {
+                   init_pipe2(stream2);
+               }
+               sleep(1);
+           }
         }
         catch( cv::Exception& e )
         {
             const char* err_msg = e.what();
             std::cout << "Pipe2 exception caught: " << err_msg << std::endl;
             pipeCounter2++;
-            if(pipeCounter2 >= 10)
+            if(pipeCounter2 >= 5)
             {
-                init_pipe2(hede);
+                init_pipe2(stream2);
             }
             sleep(1);
-        }*/
+        }
 
         frames++;
     }
@@ -244,125 +217,7 @@ int main() {
     return 0;
 }
 
-
-int dupcounter= 10;
-std::string conv_toJson(vector<bbox_t> val,int camId)
-{
-    if(val.size() == 0){return "0" ;}
-
-    time_t now = time(0);
-
-    std::tm* utc_tm = std::localtime(&now);
-
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() % 1000;
-
-    string mon,day,hour,min,sec;
-
-    mon = utc_tm->tm_mon+1;
-    day=to_string(utc_tm->tm_mday);
-    hour=to_string(utc_tm->tm_hour);
-    min=to_string(utc_tm->tm_min);
-    sec=to_string(utc_tm->tm_sec);
-
-
-    if(utc_tm->tm_mon <10)
-    {
-        mon="0"+to_string(utc_tm->tm_mon+1);
-    }
-    if(utc_tm->tm_mday <10)
-    {
-        day="0"+to_string(utc_tm->tm_mday);
-    }
-    if(utc_tm->tm_hour <10)
-    {
-        hour="0"+to_string(utc_tm->tm_hour);
-    }
-    if(utc_tm->tm_min <10)
-    {
-        min="0"+to_string(utc_tm->tm_min);
-    }
-    if(utc_tm->tm_sec < 10)
-    {
-        sec="0"+to_string(utc_tm->tm_sec);
-    }
-
-
-    string fcounter = to_string(val[0].frames_counter);
-    if(val[0].frames_counter < 10)
-    {
-        fcounter = "0"+ to_string(val[0].frames_counter);
-    }
-    string CamID = "c"+to_string(camId);
-
-    std::string bsonId = to_string(utc_tm->tm_year+1900) +"."+ mon +"."+day+"."+hour+"."+min+"."+sec+ "."+ to_string(millis)+"."+ CamID+"."+ fcounter;
-    std::string t = to_string(utc_tm->tm_year+1900) +"-"+ mon +"-"+day+"T"+hour+":"+min+":"+sec+".000Z";
-    //std::string t = "2024-03-12T12:26:15.000Z";
-    dupcounter++;
-    std::string msg ;
-
-
-         msg +=
-                "[{\"Id\":\"" + bsonId + "\"" + "," + "\"Time\":\"" + t + "\",\"CameraId\":\"" + CamID + "\"," +
-                "\"MovementStatus\":\"" + movementStatus + "\"," + "\"Objects\":[";
-
-
-
-    int z =0;
-    for(int i = 0;i< val.size();i++)
-    {
-        if(Classes[val[i].obj_id] == Classes[79])
-        {
-            msg.pop_back();
-            break;
-        }
-
-        val[i].color ="a";
-        std::string empty = "{\"CId\":""\""+ Classes[val[i].obj_id]+"\"" +
-                            ",\"TId\":"+ to_string(val[i].track_id)+",\"Prob\":"+ to_string((uint16_t)val[i].prob*10)+",\"Clr\":\""+ val[i].color+"\",\"X\":"+ to_string(int (val[i].x*scaler))+",\"Y\":"+ to_string(int(val[i].y*scaler))+",\"W\":"+ to_string(int(val[i].w*scaler))+",\"H\":"+ to_string(int(val[i].h*scaler))+
-                            "}";
-        msg+=empty;
-        if(i<val.size()-1)
-        {
-            msg+=",";
-        }
-       z++;
-    }
-    if(val.size() == 0)
-    {
-        msg+="[";
-    }
-    if(movementStatus=="static") {
-        msg += "]}]\n";
-    }
-    else {
-        msg += "]},{\"Id\":\"" + bsonId + "\"" + "," + "\"Time\":\"" + t + "\",\"CameraId\":\"" + "motionDetectFrame" +
-               "\"," + "\"MovementStatus\":\"" + movementStatus + "\"," + "\"Objects\":[";
-
-        for (int i = z-1; i < val.size(); i++) {
-            val[i].color = "a";
-            std::string empty = "{\"CId\":""\"" + Classes[val[i].obj_id] + "\"" +
-                                ",\"TId\":" + to_string(val[i].track_id) + ",\"Prob\":" +
-                                to_string((uint16_t) val[i].prob * 10) + ",\"Clr\":\"" + val[i].color + "\",\"X\":" +
-                                to_string(int(val[i].x * scaler)) + ",\"Y\":" + to_string(int(val[i].y * scaler)) +
-                                ",\"W\":" + to_string(int(val[i].w * scaler)) + ",\"H\":" +
-                                to_string(int(val[i].h * scaler)) +
-                                "}";
-            msg += empty;
-            if (i < val.size() - 1) {
-                msg += ",";
-            }
-        }
-        msg+="]}]\n";
-    }
-
-
-
-    return msg;
-}
-
-
-void consumerBoxQ(CQueue<vector<bbox_t>>& queue,int camId)
+void consumerBoxQ(CQueue<objectPack>& queue)
 {
     while (true) {
         if (queue.empty() && queue.shouldTerminate())
@@ -370,18 +225,20 @@ void consumerBoxQ(CQueue<vector<bbox_t>>& queue,int camId)
             break;
         }
 
-        vector<bbox_t> items;
+        objectPack items;
         if (queue.pop(items)) {
             std::system("clear");
-            string result = conv_toJson(items,camId);
-            cout<< result <<endl;
-
-            char* buf = new char[strlen(result.c_str())+1];
-            strcpy(buf, result.c_str());
+            string result = serializeJsonObject(items);
 
 
-            int len = strlen(result.c_str());
-            SSocket::m_send(buf,len);
+            string r1="["+result+"]\n";
+            cout<< r1 <<endl;
+            char* buf = new char[strlen(r1.c_str())+1];
+            strcpy(buf, r1.c_str());
+
+
+            int len = strlen(r1.c_str());
+              SSocket::m_send(buf,len);
 
             delete [] buf;
         }
@@ -395,7 +252,9 @@ void init_pipe1(string ipstream)
     if (!rtsp1.isOpened()) {
         cout << "Exception: pipeline 1 issue!" << endl;
     }
-    pipeCounter1=0;
+    else {
+        pipeCounter1 = 0;
+    }
 }
 
 void init_pipe2(string ipstream)
@@ -405,5 +264,24 @@ void init_pipe2(string ipstream)
     if (!rtsp2.isOpened()) {
         cout << "Exception: pipeline 2 issue!" << endl;
     }
-    pipeCounter2=0;
+    else {
+        pipeCounter2 = 0;
+    }
+}
+
+
+void pipelineRestart(std::string pipeline,int cameraId,cv::VideoCapture rtsp)
+{
+    rtsp.release();
+    bool waitlock=true;
+    while(waitlock)
+    {
+        sleep(10);
+        waitlock=false;
+    }
+    rtsp.open(pipeline,cv::CAP_GSTREAMER);
+
+    if (!rtsp1.isOpened()) {
+        cout << "Exception: pipeline 1 issue!" << endl;
+    }
 }

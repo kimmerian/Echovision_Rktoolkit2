@@ -1,5 +1,5 @@
 /home/rock/clion-2023.3.3/bin/cmake/linux/aarch64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/home/rock/clion-2023.3.3/bin/ninja/linux/aarch64/ninja -G Ninja -S /home/rock/clion_move/echovisionRktoolkit2 -B /home/rock/clion_move/echovisionRktoolkit2/cmake-build-debug
--- RGA_PATH="/home/rock/clion_move/echovisionRktoolkit2/include/3rdparty/rga/RK3588"
--- Configuring done (0.1s)
+-- OpenCV_INCLUDE_DIRS="/usr/local/include/opencv4"
+-- Configuring done (0.0s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/rock/clion_move/echovisionRktoolkit2/cmake-build-debug
